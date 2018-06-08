@@ -53,7 +53,7 @@ export interface AudioOptions {
  * The function signature of the callbacks to various `AudioInput` and
  * `AudioOutput` methods.
  */
-export type AudioCallback = () => void;
+export type AudioCallback = (err?: Error) => void;
 
 /**
  * AudioInput is a readable stream that records audio from the given device
@@ -95,6 +95,17 @@ export class AudioInput extends Readable {
    */
   public start() {
     this.audio.start();
+  }
+
+  /**
+   * Stop reading data from the input device
+   */
+  public stop(cb?: AudioCallback) {
+    this.audio.stop((err?: Error) => {
+      if (cb && typeof cb === "function") {
+        cb(err);
+      }
+    });
   }
 
   /**

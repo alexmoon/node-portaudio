@@ -110,13 +110,16 @@ public:
     }
   }
 
-  void stop() {
-    Pa_StopStream(mStream);
-    Pa_Terminate();
+  PaError stop() {
+    return Pa_StopStream(mStream);
   }
 
   void abort() {
     Pa_AbortStream(mStream);
+    Pa_Terminate();
+  }
+
+  void terminate() {
     Pa_Terminate();
   }
 
@@ -213,6 +216,24 @@ class InWorker : public Nan::AsyncWorker {
     std::shared_ptr<Memory> mInChunk;
 };
 
+class StopInWorker : public Nan::AsyncWorker {
+  public:
+    StopInWorker(std::shared_ptr<InContext> InContext, Nan::Callback *callback)
+      : AsyncWorker(callback), mInContext(InContext)
+    { }
+    ~StopInWorker() {}
+
+    void Execute() {
+      PaError errCode = mInContext->stop();
+      if (errCode != paNoError) {
+        SetErrorMessage((std::string("Could not stop input stream: ") + Pa_GetErrorText(errCode)).c_str());
+      }
+    }
+
+  private:
+    std::shared_ptr<InContext> mInContext;
+};
+
 class QuitInWorker : public Nan::AsyncWorker {
   public:
     QuitInWorker(std::shared_ptr<InContext> InContext, Nan::Callback *callback)
@@ -227,6 +248,7 @@ class QuitInWorker : public Nan::AsyncWorker {
     void HandleOKCallback () {
       Nan::HandleScope scope;
       mInContext->stop();
+      mInContext->terminate();
       callback->Call(0, NULL, async_resource);
     }
 
@@ -244,6 +266,19 @@ void AudioIn::doStart() { mInContext->start(); }
 NAN_METHOD(AudioIn::Start) {
   AudioIn* obj = Nan::ObjectWrap::Unwrap<AudioIn>(info.Holder());
   obj->doStart();
+  info.GetReturnValue().SetUndefined();
+}
+
+NAN_METHOD(AudioIn::Stop) {
+  if (info.Length() != 1)
+    return Nan::ThrowError("AudioIn Stop expects 1 argument");
+  if (!info[0]->IsFunction())
+    return Nan::ThrowError("AudioIn Stop requires a valid callback as the parameter");
+
+  Local<Function> callback = Local<Function>::Cast(info[0]);
+  AudioIn* obj = Nan::ObjectWrap::Unwrap<AudioIn>(info.Holder());
+
+  AsyncQueueWorker(new StopInWorker(obj->getContext(), new Nan::Callback(callback)));
   info.GetReturnValue().SetUndefined();
 }
 
@@ -291,6 +326,7 @@ NAN_MODULE_INIT(AudioIn::Init) {
   SetPrototypeMethod(tpl, "read", Read);
   SetPrototypeMethod(tpl, "quit", Quit);
   SetPrototypeMethod(tpl, "abort", Abort);
+  SetPrototypeMethod(tpl, "stop", Stop);
 
   constructor().Reset(Nan::GetFunction(tpl).ToLocalChecked());
   Nan::Set(target, Nan::New("AudioIn").ToLocalChecked(),

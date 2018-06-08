@@ -114,6 +114,10 @@ public:
     return Pa_StopStream(mStream);
   }
 
+  PaError isStopped() {
+    return Pa_IsStreamStopped(mStream);
+  }
+
   void abort() {
     Pa_AbortStream(mStream);
     Pa_Terminate();
@@ -282,6 +286,19 @@ NAN_METHOD(AudioIn::Stop) {
   info.GetReturnValue().SetUndefined();
 }
 
+int AudioIn::doIsStopped() { return mInContext->isStopped(); }
+
+NAN_METHOD(AudioIn::IsStopped) {
+  AudioIn* obj = Nan::ObjectWrap::Unwrap<AudioIn>(info.Holder());
+  int errCode = obj->doIsStopped();
+  if (errCode < 0) {
+    std::string err = std::string("Could not get input stream stopped state: ") + Pa_GetErrorText(errCode);
+    Nan::ThrowError(err.c_str());
+  } else {
+    info.GetReturnValue().Set(static_cast<bool>(errCode));
+  }
+}
+
 NAN_METHOD(AudioIn::Abort) {
   AudioIn* obj = Nan::ObjectWrap::Unwrap<AudioIn>(info.Holder());
   obj->mInContext->abort();
@@ -327,6 +344,7 @@ NAN_MODULE_INIT(AudioIn::Init) {
   SetPrototypeMethod(tpl, "quit", Quit);
   SetPrototypeMethod(tpl, "abort", Abort);
   SetPrototypeMethod(tpl, "stop", Stop);
+  SetPrototypeMethod(tpl, "isStopped", IsStopped);
 
   constructor().Reset(Nan::GetFunction(tpl).ToLocalChecked());
   Nan::Set(target, Nan::New("AudioIn").ToLocalChecked(),

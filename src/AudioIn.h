@@ -28,6 +28,7 @@ public:
 
   std::shared_ptr<InContext> getContext() const { return mInContext; }
   void doStart();
+  int doIsStopped();
 
 private:
   explicit AudioIn(v8::Local<v8::Object> options);
@@ -57,6 +58,7 @@ private:
   static NAN_METHOD(Start);
   static NAN_METHOD(Read);
   static NAN_METHOD(Stop);
+  static NAN_METHOD(IsStopped);
   static NAN_METHOD(Quit);
   static NAN_METHOD(Abort);
 

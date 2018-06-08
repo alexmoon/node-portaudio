@@ -109,6 +109,13 @@ export class AudioInput extends Readable {
   }
 
   /**
+   * Determine whether the stream is stopped
+   */
+  public isStopped() {
+    return this.audio.isStopped();
+  }
+
+  /**
    * Immediately aborts recording without waiting for the buffers to flush
    */
   public abort() {

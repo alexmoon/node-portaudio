@@ -48,7 +48,7 @@ class OutContext {
 public:
   OutContext(std::shared_ptr<AudioOptions> audioOptions, PaStreamCallback *cb)
     : mAudioOptions(audioOptions), mChunkQueue(mAudioOptions->maxQueue()), 
-      mCurOffset(0), mActive(true), mFinished(false) {
+      mCurOffset(0) {
 
     // set DEBUG flag based on options
     DEBUG = audioOptions->debugMode();
@@ -106,7 +106,6 @@ public:
   }
   
   ~OutContext() {
-    Pa_StopStream(mStream);
     Pa_Terminate();
   }
 
@@ -118,59 +117,54 @@ public:
     }
   }
 
-  void stop() {
-    Pa_StopStream(mStream);
-    Pa_Terminate();
+  PaError stop() {
+    if (Pa_IsStreamStopped(mStream) == 1) {
+      return paNoError;
+    } else if (Pa_IsStreamActive(mStream) == 1) {
+      std::unique_lock<std::mutex> lk(m);
+      while(Pa_IsStreamActive(mStream) == 1) { cv.wait(lk); }
+    }
+    return Pa_StopStream(mStream);
   }
 
-  void abort() {
-    Pa_AbortStream(mStream);
-    Pa_Terminate();
+  void close() {
+    Pa_CloseStream(mStream);
   }
 
-  void addChunk(std::shared_ptr<AudioChunk> audioChunk) {
+  PaError addChunk(std::shared_ptr<AudioChunk> audioChunk) {
     mChunkQueue.enqueue(audioChunk);
+    if (Pa_IsStreamActive(mStream) == 0) {
+      if (Pa_IsStreamStopped(mStream) == 0) {
+        Pa_StopStream(mStream);
+      }
+      return Pa_StartStream(mStream);
+    } else {
+      return paNoError;
+    }
   }
 
   bool fillBuffer(void *buf, uint32_t frameCount) {
     uint8_t *dst = (uint8_t *)buf;
     uint32_t bytesRemaining = frameCount * mAudioOptions->channelCount() * mAudioOptions->sampleFormat() / 8;
 
-    uint32_t active = isActive();
-    if (!active && (0 == mChunkQueue.size()) && 
-        (!mCurChunk || (mCurChunk && (bytesRemaining >= mCurChunk->chunk()->numBytes() - mCurOffset)))) {
-      if (mCurChunk) {
+    while (bytesRemaining) {
+      if (mCurChunk && mCurOffset < mCurChunk->chunk()->numBytes()) {
         uint32_t bytesCopied = doCopy(mCurChunk->chunk(), dst, bytesRemaining);
-        uint32_t missingBytes = bytesRemaining - bytesCopied;
-        if (missingBytes > 0) {
-          DEBUG_PRINT_ERR("Finishing - %d bytes not available for the last output buffer\n", missingBytes);
-          memset(dst + bytesCopied, 0, missingBytes);
-        }
-      }
-      std::lock_guard<std::mutex> lk(m);
-      mFinished = true;
-      cv.notify_one();
-    } else {
-      while (bytesRemaining) {
-        if (!(mCurChunk && (mCurOffset < mCurChunk->chunk()->numBytes()))) {
-          mCurChunk = mChunkQueue.dequeue();
-          mCurOffset = 0;
-        }
-        if (mCurChunk) {
-          uint32_t bytesCopied = doCopy(mCurChunk->chunk(), dst, bytesRemaining);
-          bytesRemaining -= bytesCopied;
-          dst += bytesCopied;
-          mCurOffset += bytesCopied;
-        } else { // Deal with termination case of ChunkQueue being kicked and returning null chunk
-          std::lock_guard<std::mutex> lk(m);
-          mFinished = true;
-          cv.notify_one();
-          break;
-        }
+        bytesRemaining -= bytesCopied;
+        dst += bytesCopied;
+        mCurOffset += bytesCopied;
+      } else if (mChunkQueue.size() > 0) {
+        mCurChunk = mChunkQueue.dequeue();
+        mCurOffset = 0;
+      } else {
+        memset(dst, 0, bytesRemaining);
+        std::lock_guard<std::mutex> lk(m);
+        cv.notify_all();
+        return false;
       }
     }
 
-    return !mFinished;
+    return true;
   }
 
   void checkStatus(uint32_t statusFlags) {
@@ -192,15 +186,7 @@ public:
     std::lock_guard<std::mutex> lk(m);
     errStr = mErrStr;
     mErrStr = std::string();
-    return errStr != std::string();
-  }
-
-  void quit() {
-    std::unique_lock<std::mutex> lk(m);
-    mActive = false;
-    mChunkQueue.quit();
-    while(!mFinished)
-      cv.wait(lk);
+    return errStr.size() > 0;
   }
 
 private:
@@ -209,16 +195,9 @@ private:
   std::shared_ptr<AudioChunk> mCurChunk;
   PaStream* mStream;
   uint32_t mCurOffset;
-  bool mActive;
-  bool mFinished;
   std::string mErrStr;
   mutable std::mutex m;
   std::condition_variable cv;
-
-  bool isActive() const {
-    std::unique_lock<std::mutex> lk(m);
-    return mActive;
-  }
 
   uint32_t doCopy(std::shared_ptr<Memory> chunk, void *dst, uint32_t numBytes) {
     uint32_t curChunkBytes = chunk->numBytes() - mCurOffset;
@@ -244,17 +223,12 @@ class OutWorker : public Nan::AsyncWorker {
     ~OutWorker() {}
 
     void Execute() {
-      mOutContext->addChunk(mAudioChunk);
-    }
-
-    void HandleOKCallback () {
-      Nan::HandleScope scope;
       std::string errStr;
-      if (mOutContext->getErrStr(errStr)) {
-        Local<Value> argv[] = { Nan::Error(errStr.c_str()) };
-        callback->Call(1, argv, async_resource);
-      } else {
-        callback->Call(0, NULL, async_resource);
+      PaError errCode = mOutContext->addChunk(mAudioChunk);
+      if (errCode != paNoError) {
+        SetErrorMessage(Pa_GetErrorText(errCode));
+      } else if (mOutContext->getErrStr(errStr)) {
+        SetErrorMessage(errStr.c_str());
       }
     }
 
@@ -263,21 +237,18 @@ class OutWorker : public Nan::AsyncWorker {
     std::shared_ptr<AudioChunk> mAudioChunk;
 };
 
-class QuitOutWorker : public Nan::AsyncWorker {
+class StopOutWorker : public Nan::AsyncWorker {
   public:
-    QuitOutWorker(std::shared_ptr<OutContext> OutContext, Nan::Callback *callback)
+    StopOutWorker(std::shared_ptr<OutContext> OutContext, Nan::Callback *callback)
       : AsyncWorker(callback), mOutContext(OutContext)
     { }
-    ~QuitOutWorker() {}
+    ~StopOutWorker() {}
 
     void Execute() {
-      mOutContext->quit();
-    }
-
-    void HandleOKCallback () {
-      Nan::HandleScope scope;
-      mOutContext->stop();
-      callback->Call(0, NULL, async_resource);
+      PaError errCode = mOutContext->stop();
+      if (errCode != paNoError) {
+        SetErrorMessage(Pa_GetErrorText(errCode));
+      }
     }
 
   private:
@@ -288,20 +259,6 @@ AudioOut::AudioOut(Local<Object> options) {
   mOutContext = std::make_shared<OutContext>(std::make_shared<AudioOptions>(options), OutCallback);
 }
 AudioOut::~AudioOut() {}
-
-void AudioOut::doStart() { mOutContext->start(); }
-
-NAN_METHOD(AudioOut::Start) {
-  AudioOut* obj = Nan::ObjectWrap::Unwrap<AudioOut>(info.Holder());
-  obj->doStart();
-  info.GetReturnValue().SetUndefined();
-}
-
-NAN_METHOD(AudioOut::Abort) {
-  AudioOut* obj = Nan::ObjectWrap::Unwrap<AudioOut>(info.Holder());
-  obj->mOutContext->abort();
-  info.GetReturnValue().SetUndefined();
-}
 
 NAN_METHOD(AudioOut::Write) {
   if (info.Length() != 2)
@@ -319,16 +276,22 @@ NAN_METHOD(AudioOut::Write) {
   info.GetReturnValue().SetUndefined();
 }
 
-NAN_METHOD(AudioOut::Quit) {
+NAN_METHOD(AudioOut::Stop) {
   if (info.Length() != 1)
-    return Nan::ThrowError("AudioOut Quit expects 1 argument");
+    return Nan::ThrowError("AudioOut Stop expects 1 argument");
   if (!info[0]->IsFunction())
-    return Nan::ThrowError("AudioOut Quit requires a valid callback as the parameter");
+    return Nan::ThrowError("AudioOut Stop requires a valid callback as the parameter");
 
   Local<Function> callback = Local<Function>::Cast(info[0]);
   AudioOut* obj = Nan::ObjectWrap::Unwrap<AudioOut>(info.Holder());
 
-  AsyncQueueWorker(new QuitOutWorker(obj->getContext(), new Nan::Callback(callback)));
+  AsyncQueueWorker(new StopOutWorker(obj->getContext(), new Nan::Callback(callback)));
+  info.GetReturnValue().SetUndefined();
+}
+
+NAN_METHOD(AudioOut::Close) {
+  AudioOut* obj = Nan::ObjectWrap::Unwrap<AudioOut>(info.Holder());
+  obj->mOutContext->close();
   info.GetReturnValue().SetUndefined();
 }
 
@@ -337,10 +300,9 @@ NAN_MODULE_INIT(AudioOut::Init) {
   tpl->SetClassName(Nan::New("AudioOut").ToLocalChecked());
   tpl->InstanceTemplate()->SetInternalFieldCount(1);
 
-  SetPrototypeMethod(tpl, "start", Start);
   SetPrototypeMethod(tpl, "write", Write);
-  SetPrototypeMethod(tpl, "quit", Quit);
-  SetPrototypeMethod(tpl, "abort", Abort);
+  SetPrototypeMethod(tpl, "stop", Stop);
+  SetPrototypeMethod(tpl, "close", Close);
 
   constructor().Reset(Nan::GetFunction(tpl).ToLocalChecked());
   Nan::Set(target, Nan::New("AudioOut").ToLocalChecked(),

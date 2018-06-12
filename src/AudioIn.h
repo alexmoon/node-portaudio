@@ -59,8 +59,7 @@ private:
   static NAN_METHOD(Read);
   static NAN_METHOD(Stop);
   static NAN_METHOD(IsStopped);
-  static NAN_METHOD(Quit);
-  static NAN_METHOD(Abort);
+  static NAN_METHOD(Close);
 
   std::shared_ptr<InContext> mInContext;
 };

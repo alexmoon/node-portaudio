@@ -82,9 +82,11 @@ export class AudioInput extends Readable {
    *
    * @param size number of bytes to read
    */
-  public _read(size: number = 1024) {
+  public _read(size: number) {
     this.audio.read(size, (err: Error, buf: Buffer) => {
-      if (!err) {
+      if (err) {
+        this.emit("error", err);
+      } else {
         this.push(buf);
       }
     });
@@ -102,8 +104,10 @@ export class AudioInput extends Readable {
    */
   public stop(cb?: AudioCallback) {
     this.audio.stop((err?: Error) => {
-      if (cb && typeof cb === "function") {
+      if (cb) {
         cb(err);
+      } else if (err) {
+        this.emit("error", err);
       }
     });
   }
@@ -116,10 +120,10 @@ export class AudioInput extends Readable {
   }
 
   /**
-   * Immediately aborts recording without waiting for the buffers to flush
+   * @deprecated Use destroy() instead.
    */
   public abort() {
-    this.audio.abort();
+    this.destroy();
   }
 
   /**
@@ -129,11 +133,19 @@ export class AudioInput extends Readable {
    * @param cb callback to call after quit has completed
    */
   public quit(cb?: AudioCallback) {
-    this.audio.quit(() => {
-      if (cb && typeof cb === "function") {
-        cb();
+    this.audio.stop((err?: Error) => {
+      this.destroy();
+      if (cb) {
+        cb(err);
+      } else if (err) {
+        this.emit("error", err);
       }
     });
+  }
+
+  public _destroy(err: Error, cb: AudioCallback): void {
+    this.audio.close();
+    cb(err);
   }
 }
 
@@ -158,7 +170,7 @@ export class AudioOutput extends Writable {
       objectMode: false,
     });
     this.audio = new NodePA.AudioOut(options);
-    this.on("finish", this.quit.bind(this));
+    this.once("finish", () => this.destroy());
   }
 
   /**
@@ -169,36 +181,39 @@ export class AudioOutput extends Writable {
    * @param encoding encoding of the data
    * @param cb callback to call after write is completed
    */
-  public write(chunk: any, encoding?: any, cb: AudioCallback = (() => undefined)) {
+  public _write(chunk: any, encoding: string, cb: AudioCallback) {
     this.audio.write(chunk, cb);
-    return true;
   }
 
   /**
-   * Start writing data to the output device
+   * @deprecated Calling start() on an AudioOutput stream is no longer neeeded.
    */
   public start() {
-    this.audio.start();
+    // Do nothing.
   }
 
   /**
-   * Immediately aborts playback without waiting for the buffers to flush
+   * @deprecated Use destroy() instead.
    */
   public abort() {
-    this.audio.abort();
+    this.destroy();
   }
 
   /**
-   * Gracefully stops the playback device, flushing all buffers, and then calls
-   * the given function.
+   * @deprecated Use end() instead.
    *
    * @param cb callback to call after quit has completed
    */
   public quit(cb?: AudioCallback) {
-    this.audio.quit(() => {
-      if (cb && typeof cb === "function") {
-        cb();
-      }
-    });
+    this.end(cb);
+  }
+
+  public _destroy(err: Error | undefined, cb: AudioCallback) {
+    this.audio.close();
+    cb(err);
+  }
+
+  public _final(cb: AudioCallback) {
+    this.audio.stop(cb);
   }
 }

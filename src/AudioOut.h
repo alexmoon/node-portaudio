@@ -27,7 +27,7 @@ public:
   static NAN_MODULE_INIT(Init);
 
   std::shared_ptr<OutContext> getContext() const { return mOutContext; }
-  void doStart();
+  int doIsActive();
 
 private:
   explicit AudioOut(v8::Local<v8::Object> options);
@@ -54,10 +54,9 @@ private:
     return my_constructor;
   }
 
-  static NAN_METHOD(Start);
   static NAN_METHOD(Write);
-  static NAN_METHOD(Quit);
-  static NAN_METHOD(Abort);
+  static NAN_METHOD(Stop);
+  static NAN_METHOD(Close);
 
   std::shared_ptr<OutContext> mOutContext;
 };

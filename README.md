@@ -111,7 +111,6 @@ rs.on('end', () => ao.end());
 
 // Start piping data and start streaming
 rs.pipe(ao);
-ao.start();
 ```
 
 ### Recording audio

@@ -43,6 +43,14 @@ export interface AudioOptions {
    */
   sampleFormat?: number;
   /**
+   * The suggested latency for the stream.
+   */
+  suggestedLatency?: number;
+  /**
+   * The maximum number of chunks to buffer before overflowing.
+   */
+  maxQueue?: number;
+  /**
    * Enable debug mode. This will print out messages from the C bindings onto
    * stderr when an error occurs
    */

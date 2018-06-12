@@ -57,6 +57,14 @@ protected:
     return result;
   } 
 
+  double unpackDouble(Local<Object> tags, const std::string& key, double dflt) {
+    double result = dflt;
+    Local<Value> val = getKey(tags, key);
+    if (Nan::Null() != val)
+      result = Nan::To<double>(val).FromJust();
+    return result;
+  }
+
   std::string unpackStr(Local<Object> tags, const std::string& key, std::string dflt) {
     std::string result = dflt;
     Local<Value> val = getKey(tags, key);
@@ -74,18 +82,20 @@ class AudioOptions : public Params {
 public:
   AudioOptions(Local<Object> tags)
     : mDeviceID(unpackNum(tags, "deviceId", 0xffffffff)),
-      mSampleRate(unpackNum(tags, "sampleRate", 44100)),
+      mSampleRate(unpackDouble(tags, "sampleRate", 44100)),
       mChannelCount(unpackNum(tags, "channelCount", 2)),
       mSampleFormat(unpackNum(tags, "sampleFormat", 8)),
+      mSuggestedLatency(unpackDouble(tags, "suggestedLatency", 0.0)),
       mMaxQueue(unpackNum(tags, "maxQueue", 2)),
       mDebugMode(unpackBool(tags, "debug", false))
   {}
   ~AudioOptions() {}
 
   uint32_t deviceID() const  { return mDeviceID; }
-  uint32_t sampleRate() const  { return mSampleRate; }
+  double sampleRate() const  { return mSampleRate; }
   uint32_t channelCount() const  { return mChannelCount; }
   uint32_t sampleFormat() const  { return mSampleFormat; }
+  double suggestedLatency() const  { return mSuggestedLatency; }
   uint32_t maxQueue() const  { return mMaxQueue; }
   bool debugMode() const { return mDebugMode; }
 
@@ -99,15 +109,17 @@ public:
     ss << "sample rate " << mSampleRate << ", ";
     ss << "channels " << mChannelCount << ", ";
     ss << "bits per sample " << mSampleFormat << ", ";
+    ss << "suggested latency " << mSuggestedLatency << ", ";
     ss << "max queue " << mMaxQueue;
     return ss.str();
   }
 
 private:
   uint32_t mDeviceID;
-  uint32_t mSampleRate;
+  double mSampleRate;
   uint32_t mChannelCount;
   uint32_t mSampleFormat;
+  double mSuggestedLatency;
   uint32_t mMaxQueue;
   bool mDebugMode;
 };

@@ -86,18 +86,15 @@ public:
     default: Nan::ThrowError("Invalid sampleFormat");
     }
 
-    outParams.suggestedLatency = Pa_GetDeviceInfo(outParams.device)->defaultLowOutputLatency;
+    outParams.suggestedLatency = mAudioOptions->suggestedLatency();
+    if (outParams.suggestedLatency == 0.0) {
+      outParams.suggestedLatency = Pa_GetDeviceInfo(outParams.device)->defaultLowOutputLatency;
+    }
     outParams.hostApiSpecificStreamInfo = NULL;
 
-    double sampleRate = (double)mAudioOptions->sampleRate();
     uint32_t framesPerBuffer = paFramesPerBufferUnspecified;
 
-    #ifdef __arm__
-    framesPerBuffer = 256;
-    outParams.suggestedLatency = Pa_GetDeviceInfo(outParams.device)->defaultHighOutputLatency;
-    #endif
-
-    errCode = Pa_OpenStream(&mStream, NULL, &outParams, sampleRate,
+    errCode = Pa_OpenStream(&mStream, NULL, &outParams, mAudioOptions->sampleRate(),
                             framesPerBuffer, paNoFlag, cb, this);
     if (errCode != paNoError) {
       std::string err = std::string("Could not open stream: ") + Pa_GetErrorText(errCode);

@@ -77,7 +77,7 @@
                   ],
                   "ldflags": [
                     "-L<@(module_root_dir)/build/Release",
-                    "-Wl,-rpath,'$ORIGIN'"
+                    "-Wl,-rpath,'$$ORIGIN'"
                   ]
                 },
                 "copies": [
@@ -96,7 +96,7 @@
                   ],
                   "ldflags": [
                   "-L<@(module_root_dir)/build/Release",
-                  "-Wl,-rpath,'$ORIGIN'"
+                  "-Wl,-rpath,'$$ORIGIN'"
                   ]
                 },
                 "copies": [

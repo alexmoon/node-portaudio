@@ -216,9 +216,9 @@ export class AudioOutput extends Writable {
     this.end(cb);
   }
 
-  public _destroy(err: Error | undefined, cb: AudioCallback) {
+  public _destroy(err: Error | null, cb: AudioCallback) {
     this.audio.close();
-    cb(err);
+    cb(err || undefined);
   }
 
   public _final(cb: AudioCallback) {

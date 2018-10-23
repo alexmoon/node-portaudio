@@ -115,10 +115,10 @@ public:
   }
 
   PaError stop() {
+    std::unique_lock<std::mutex> lk(m);
     if (Pa_IsStreamStopped(mStream) == 1) {
       return paNoError;
     } else if (Pa_IsStreamActive(mStream) == 1) {
-      std::unique_lock<std::mutex> lk(m);
       while(Pa_IsStreamActive(mStream) == 1) { cv.wait(lk); }
     }
     return Pa_StopStream(mStream);
@@ -129,6 +129,7 @@ public:
   }
 
   PaError addChunk(std::shared_ptr<AudioChunk> audioChunk) {
+    std::lock_guard<std::mutex> lk(m);
     mChunkQueue.enqueue(audioChunk);
     if (Pa_IsStreamActive(mStream) == 0) {
       if (Pa_IsStreamStopped(mStream) == 0) {

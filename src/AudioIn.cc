@@ -99,6 +99,7 @@ public:
   }
 
   void start() {
+    std::lock_guard<std::mutex> lk(m);
     if (Pa_IsStreamStopped(mStream) == 1) {
       PaError errCode = Pa_StartStream(mStream);
       if (errCode != paNoError) {
@@ -109,6 +110,7 @@ public:
   }
 
   PaError stop() {
+    std::lock_guard<std::mutex> lk(m);
     if (Pa_IsStreamStopped(mStream) == 1) {
       return paNoError;
     }

@@ -119,7 +119,7 @@ public:
     if (Pa_IsStreamStopped(mStream) == 1) {
       return paNoError;
     } else if (Pa_IsStreamActive(mStream) == 1) {
-      while(Pa_IsStreamActive(mStream) == 1) { cv.wait(lk); }
+      while((mCurChunk && mCurOffset < mCurChunk->chunk()->numBytes()) || mChunkQueue.size() > 0) { cv.wait(lk); }
     }
     return Pa_StopStream(mStream);
   }
